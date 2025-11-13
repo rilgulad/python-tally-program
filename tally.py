@@ -18,7 +18,8 @@ def load_tallies():
                 old_tallies = {k: v for k, v in data.items() if k not in ["history"]}
                 return {
                     "settings": {
-                        "counters": list(old_tallies.keys())
+                        "counters": list(old_tallies.keys()),
+                        "max_history": 2
                     },
                     "tallies": old_tallies,
                     "history": data.get("history", []),
@@ -33,11 +34,15 @@ def load_tallies():
                 data["first_tally_time"] = None
             if "last_tally_time" not in data:
                 data["last_tally_time"] = None
+            # Ensure max_history exists in settings
+            if "max_history" not in data["settings"]:
+                data["settings"]["max_history"] = 2
             return data
     # Default structure
     return {
         "settings": {
-            "counters": ["Reference", "Direction"]
+            "counters": ["Reference", "Direction"],
+            "max_history": 2
         },
         "tallies": {
             "Reference": 0,
@@ -55,16 +60,24 @@ def save_tallies(data):
 
 # Settings Dialog
 class SettingsDialog:
-    def __init__(self, parent, current_counters):
+    def __init__(self, parent, current_counters, max_history=2):
         self.result = None
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Settings")
-        self.dialog.geometry("300x400")
+        self.dialog.geometry("300x450")
         self.dialog.attributes("-topmost", True)
 
         # Make dialog modal
         self.dialog.transient(parent)
         self.dialog.grab_set()
+
+        # Max history setting
+        history_frame = tk.Frame(self.dialog)
+        history_frame.pack(pady=5)
+        tk.Label(history_frame, text="Max History Entries:", font=('Arial', 10, 'bold')).pack(side=tk.LEFT, padx=5)
+        self.max_history_var = tk.IntVar(value=max_history)
+        self.max_history_spinbox = tk.Spinbox(history_frame, from_=1, to=10, textvariable=self.max_history_var, width=5)
+        self.max_history_spinbox.pack(side=tk.LEFT, padx=5)
 
         tk.Label(self.dialog, text="Counter Names:", font=('Arial', 10, 'bold')).pack(pady=5)
 
@@ -127,7 +140,14 @@ class SettingsDialog:
         if not counters:
             messagebox.showwarning("Warning", "You must have at least one counter!", parent=self.dialog)
             return
-        self.result = counters
+        max_history = self.max_history_var.get()
+        if max_history < 1:
+            messagebox.showwarning("Warning", "Max history must be at least 1!", parent=self.dialog)
+            return
+        self.result = {
+            "counters": counters,
+            "max_history": max_history
+        }
         self.dialog.destroy()
 
     def cancel(self):
@@ -162,11 +182,6 @@ class TallyApp:
         self.counter_buttons.clear()
 
         current_row = 0
-
-        # Settings button
-        settings_btn = tk.Button(self.root, text="Settings", command=self.open_settings)
-        settings_btn.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
-        current_row += 1
 
         # Button to toggle history display
         self.toggle_history_btn = tk.Button(self.root, text="Toggle History", command=self.toggle_history)
@@ -217,6 +232,11 @@ class TallyApp:
         self.clear_btn = tk.Button(self.root, text="Clear", command=self.confirm_clear,
                                    width=6, height=1, bg="red")
         self.clear_btn.grid(row=current_row, column=0, columnspan=2, sticky='e', padx=5, pady=2)
+        current_row += 1
+
+        # Settings button at the bottom
+        settings_btn = tk.Button(self.root, text="Settings", command=self.open_settings)
+        settings_btn.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
         self.update_history_display()
 
@@ -264,9 +284,10 @@ class TallyApp:
         # Add the current tallies to the history
         self.data["history"].append(history_entry)
 
-        # Limit the history to the last 2 entries
-        if len(self.data["history"]) > 2:
-            self.data["history"].pop(0)
+        # Limit the history to the configured max_history
+        max_history = self.data["settings"]["max_history"]
+        if len(self.data["history"]) > max_history:
+            self.data["history"] = self.data["history"][-max_history:]
 
         # Reset all tallies to 0
         for counter_name in self.data["settings"]["counters"]:
@@ -283,22 +304,32 @@ class TallyApp:
         self.update_history_display()
 
     def open_settings(self):
-        dialog = SettingsDialog(self.root, self.data["settings"]["counters"])
-        new_counters = dialog.show()
+        dialog = SettingsDialog(
+            self.root,
+            self.data["settings"]["counters"],
+            self.data["settings"]["max_history"]
+        )
+        result = dialog.show()
 
-        if new_counters is not None:
+        if result is not None:
             # Preserve existing tally values for counters that still exist
             old_tallies = self.data["tallies"].copy()
 
             # Update settings
-            self.data["settings"]["counters"] = new_counters
+            self.data["settings"]["counters"] = result["counters"]
+            self.data["settings"]["max_history"] = result["max_history"]
 
             # Update tallies - keep old values or set to 0
             new_tallies = {}
-            for counter in new_counters:
+            for counter in result["counters"]:
                 new_tallies[counter] = old_tallies.get(counter, 0)
 
             self.data["tallies"] = new_tallies
+
+            # Trim history if max_history was reduced
+            max_history = result["max_history"]
+            if len(self.data["history"]) > max_history:
+                self.data["history"] = self.data["history"][-max_history:]
 
             # Rebuild the UI with new counters
             self.build_ui()
