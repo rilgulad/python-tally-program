@@ -52,6 +52,9 @@ def load_tallies():
             # Ensure sound setting exists
             if "sound_enabled" not in data["settings"]:
                 data["settings"]["sound_enabled"] = False
+            # Ensure compact mode setting exists
+            if "compact_mode" not in data["settings"]:
+                data["settings"]["compact_mode"] = False
             return data
     # Default structure
     return {
@@ -61,7 +64,8 @@ def load_tallies():
             "window_x": 1000,
             "window_y": 500,
             "theme": "light",
-            "sound_enabled": False
+            "sound_enabled": False,
+            "compact_mode": False
         },
         "tallies": {
             "Reference": 0,
@@ -221,7 +225,16 @@ class TallyApp:
         # Set window position from saved settings
         window_x = self.data["settings"].get("window_x", 1000)
         window_y = self.data["settings"].get("window_y", 500)
-        self.root.geometry(f"450x550+{window_x}+{window_y}")
+
+        # Set initial geometry based on compact mode
+        if self.data["settings"].get("compact_mode", False):
+            # Calculate width based on number of counters (60px per counter + 40px for toggle)
+            num_counters = len(self.data["settings"]["counters"])
+            width = (num_counters * 60) + 40
+            self.root.geometry(f"{width}x40+{window_x}+{window_y}")
+        else:
+            self.root.geometry(f"450x550+{window_x}+{window_y}")
+
         self.root.attributes("-topmost", True)  # Always on top
 
         # Storage for dynamic widgets
@@ -248,7 +261,11 @@ class TallyApp:
         # Auto-save on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        self.build_ui()
+        # Build UI based on mode
+        if self.data["settings"].get("compact_mode", False):
+            self.build_compact_ui()
+        else:
+            self.build_ui()
         self.apply_theme()
 
     def build_ui(self):
@@ -261,13 +278,14 @@ class TallyApp:
 
         current_row = 0
 
-        # Top button row: Undo, Export, Toggle History
+        # Top button row: Undo, Export, Toggle History, Compact Mode
         top_btn_frame = tk.Frame(self.root)
         top_btn_frame.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
 
         tk.Button(top_btn_frame, text="Undo", command=self.undo_last_action, width=8).pack(side=tk.LEFT, padx=2)
         tk.Button(top_btn_frame, text="Export CSV", command=self.export_to_csv, width=10).pack(side=tk.LEFT, padx=2)
         tk.Button(top_btn_frame, text="Toggle History", command=self.toggle_history).pack(side=tk.LEFT, padx=2)
+        tk.Button(top_btn_frame, text="⊟", command=self.toggle_compact_mode, width=2).pack(side=tk.RIGHT, padx=2)
         current_row += 1
 
         # Statistics display
@@ -334,6 +352,89 @@ class TallyApp:
 
         self.update_history_display()
         self.update_statistics()
+
+    def build_compact_ui(self):
+        """Build minimal bar UI with just counter buttons in a row"""
+        # Clear existing widgets
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        self.counter_labels.clear()
+        self.counter_buttons.clear()
+
+        # Create horizontal frame for all buttons
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Add counter buttons
+        counters = self.data["settings"]["counters"]
+
+        # Ensure all counters exist in tallies
+        for counter in counters:
+            if counter not in self.data["tallies"]:
+                self.data["tallies"][counter] = 0
+
+        for counter_name in counters:
+            # Button with counter name and count
+            count = self.data['tallies'][counter_name]
+            btn = tk.Button(main_frame,
+                          text=f"{counter_name}\n{count}",
+                          command=lambda name=counter_name: self.add_tally_compact(name),
+                          width=6, height=2,
+                          bg="lightgreen")
+            btn.pack(side=tk.LEFT, padx=1, pady=2, fill=tk.BOTH, expand=True)
+            self.counter_buttons[counter_name] = btn
+
+        # Toggle button to switch back to normal mode
+        toggle_btn = tk.Button(main_frame, text="⊞",
+                             command=self.toggle_compact_mode,
+                             width=2, height=2)
+        toggle_btn.pack(side=tk.LEFT, padx=1, pady=2)
+
+    def toggle_compact_mode(self):
+        """Toggle between normal and compact mode"""
+        # Toggle the mode
+        current_mode = self.data["settings"].get("compact_mode", False)
+        self.data["settings"]["compact_mode"] = not current_mode
+
+        # Get current window position
+        geometry = self.root.geometry()
+        parts = geometry.split('+')
+        if len(parts) == 3:
+            window_x = int(parts[1])
+            window_y = int(parts[2])
+            self.data["settings"]["window_x"] = window_x
+            self.data["settings"]["window_y"] = window_y
+
+        # Resize window based on new mode
+        if self.data["settings"]["compact_mode"]:
+            # Switching to compact mode
+            num_counters = len(self.data["settings"]["counters"])
+            width = (num_counters * 60) + 40
+            self.root.geometry(f"{width}x40+{window_x}+{window_y}")
+            self.build_compact_ui()
+        else:
+            # Switching to normal mode
+            self.root.geometry(f"450x550+{window_x}+{window_y}")
+            self.build_ui()
+
+        self.apply_theme()
+
+    def add_tally_compact(self, counter_name):
+        """Add tally in compact mode and update button text"""
+        self.save_undo_state()
+        self.data["tallies"][counter_name] += 1
+
+        # Track timestamps
+        current_time = datetime.now().isoformat()
+        if self.data["first_tally_time"] is None:
+            self.data["first_tally_time"] = current_time
+        self.data["last_tally_time"] = current_time
+
+        # Update button text
+        count = self.data['tallies'][counter_name]
+        self.counter_buttons[counter_name].config(text=f"{counter_name}\n{count}")
+        self.play_sound()
 
     def play_sound(self):
         """Play a simple beep sound if sound is enabled"""
