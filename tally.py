@@ -1,6 +1,7 @@
 import tkinter as tk
 import os
 import json
+from datetime import datetime
 from tkinter import messagebox, simpledialog  # Import messagebox for confirmation
 
 # File to save tallies
@@ -20,11 +21,18 @@ def load_tallies():
                         "counters": list(old_tallies.keys())
                     },
                     "tallies": old_tallies,
-                    "history": data.get("history", [])
+                    "history": data.get("history", []),
+                    "first_tally_time": None,
+                    "last_tally_time": None
                 }
             # Ensure the history key exists
             if "history" not in data:
                 data["history"] = []
+            # Ensure timestamp fields exist
+            if "first_tally_time" not in data:
+                data["first_tally_time"] = None
+            if "last_tally_time" not in data:
+                data["last_tally_time"] = None
             return data
     # Default structure
     return {
@@ -35,7 +43,9 @@ def load_tallies():
             "Reference": 0,
             "Direction": 0
         },
-        "history": []
+        "history": [],
+        "first_tally_time": None,
+        "last_tally_time": None
     }
 
 # Save tallies to file
@@ -132,7 +142,7 @@ class TallyApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Tally Counter")
-        self.root.geometry("300x400+1000+500")  # Adjusted size
+        self.root.geometry("400x450+1000+500")  # Adjusted size for two-column layout
         self.root.attributes("-topmost", True)  # Always on top
 
         self.data = load_tallies()
@@ -155,17 +165,17 @@ class TallyApp:
 
         # Settings button
         settings_btn = tk.Button(self.root, text="Settings", command=self.open_settings)
-        settings_btn.grid(row=current_row, column=0, sticky='ew', padx=5, pady=2)
+        settings_btn.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
         current_row += 1
 
         # Button to toggle history display
         self.toggle_history_btn = tk.Button(self.root, text="Toggle History", command=self.toggle_history)
-        self.toggle_history_btn.grid(row=current_row, column=0, sticky='ew', padx=5, pady=2)
+        self.toggle_history_btn.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
         current_row += 1
 
         # History text area
-        self.history_text = tk.Text(self.root, height=4, width=30, state='disabled')
-        self.history_text.grid(row=current_row, column=0, sticky='ew', padx=5, pady=2)
+        self.history_text = tk.Text(self.root, height=6, width=40, state='disabled')
+        self.history_text.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=2)
         self.history_text.grid_remove()  # Initially hidden
         current_row += 1
 
@@ -180,34 +190,60 @@ class TallyApp:
         for counter_name in counters:
             # Label showing current count
             label = tk.Label(self.root, text=f"{counter_name}: {self.data['tallies'][counter_name]}")
-            label.grid(row=current_row, column=0, padx=5, pady=2)
+            label.grid(row=current_row, column=0, columnspan=2, padx=5, pady=2)
             self.counter_labels[counter_name] = label
             current_row += 1
 
-            # Button to increment
-            btn = tk.Button(self.root, text=f"Add to {counter_name}",
-                          command=lambda name=counter_name: self.add_tally(name))
-            btn.grid(row=current_row, column=0, sticky='ew', padx=5, pady=2)
-            self.counter_buttons[counter_name] = btn
+            # Buttons to add and subtract
+            add_btn = tk.Button(self.root, text=f"Add to {counter_name}",
+                              command=lambda name=counter_name: self.add_tally(name),
+                              bg="lightgreen")
+            add_btn.grid(row=current_row, column=0, sticky='ew', padx=(5, 2), pady=2)
+
+            sub_btn = tk.Button(self.root, text=f"Subtract",
+                              command=lambda name=counter_name: self.subtract_tally(name),
+                              bg="lightcoral")
+            sub_btn.grid(row=current_row, column=1, sticky='ew', padx=(2, 5), pady=2)
+
+            self.counter_buttons[counter_name] = (add_btn, sub_btn)
             current_row += 1
 
         # Save & Quit button
         self.save_btn = tk.Button(self.root, text="Save & Quit", command=self.save_and_quit)
-        self.save_btn.grid(row=current_row, column=0, sticky='ew', padx=5, pady=5)
+        self.save_btn.grid(row=current_row, column=0, columnspan=2, sticky='ew', padx=5, pady=5)
         current_row += 1
 
         # Clear Tallies button with confirmation
         self.clear_btn = tk.Button(self.root, text="Clear", command=self.confirm_clear,
                                    width=6, height=1, bg="red")
-        self.clear_btn.grid(row=current_row, column=0, sticky='e', padx=5, pady=2)
+        self.clear_btn.grid(row=current_row, column=0, columnspan=2, sticky='e', padx=5, pady=2)
 
         self.update_history_display()
 
     def add_tally(self, counter_name):
         self.data["tallies"][counter_name] += 1
+
+        # Track timestamps
+        current_time = datetime.now().isoformat()
+        if self.data["first_tally_time"] is None:
+            self.data["first_tally_time"] = current_time
+        self.data["last_tally_time"] = current_time
+
         self.counter_labels[counter_name].config(
             text=f"{counter_name}: {self.data['tallies'][counter_name]}"
         )
+
+    def subtract_tally(self, counter_name):
+        # Only subtract if the count is greater than 0
+        if self.data["tallies"][counter_name] > 0:
+            self.data["tallies"][counter_name] -= 1
+
+            # Update last tally time
+            self.data["last_tally_time"] = datetime.now().isoformat()
+
+            self.counter_labels[counter_name].config(
+                text=f"{counter_name}: {self.data['tallies'][counter_name]}"
+            )
 
     def confirm_clear(self):
         if messagebox.askyesno("Confirm Clear", "Are you sure you want to clear the tallies?"):
@@ -218,8 +254,15 @@ class TallyApp:
         current_tallies = {name: self.data["tallies"][name]
                           for name in self.data["settings"]["counters"]}
 
+        # Create history entry with timestamps
+        history_entry = {
+            "tallies": current_tallies,
+            "first_tally_time": self.data.get("first_tally_time"),
+            "last_tally_time": self.data.get("last_tally_time")
+        }
+
         # Add the current tallies to the history
-        self.data["history"].append(current_tallies)
+        self.data["history"].append(history_entry)
 
         # Limit the history to the last 2 entries
         if len(self.data["history"]) > 2:
@@ -231,6 +274,10 @@ class TallyApp:
             self.counter_labels[counter_name].config(
                 text=f"{counter_name}: {self.data['tallies'][counter_name]}"
             )
+
+        # Reset timestamps
+        self.data["first_tally_time"] = None
+        self.data["last_tally_time"] = None
 
         # Update the history display
         self.update_history_display()
@@ -268,13 +315,40 @@ class TallyApp:
         self.history_text.delete(1.0, tk.END)  # Clear the existing text
 
         for entry in self.data["history"]:
-            # Handle both old format (tuples) and new format (dicts)
-            if isinstance(entry, dict):
+            # Handle new format with timestamps
+            if isinstance(entry, dict) and "tallies" in entry:
+                # Format tallies
+                tallies = entry["tallies"]
+                tally_str = ", ".join([f"{k}: {v}" for k, v in tallies.items()])
+
+                # Format dates
+                first_time = entry.get("first_tally_time")
+                last_time = entry.get("last_tally_time")
+
+                if first_time and last_time:
+                    first_dt = datetime.fromisoformat(first_time)
+                    last_dt = datetime.fromisoformat(last_time)
+
+                    # Format as date and time
+                    first_str = first_dt.strftime("%m/%d/%y %I:%M%p")
+                    last_str = last_dt.strftime("%m/%d/%y %I:%M%p")
+
+                    self.history_text.insert(tk.END, f"{tally_str}\n")
+                    self.history_text.insert(tk.END, f"  {first_str} - {last_str}\n")
+                else:
+                    self.history_text.insert(tk.END, f"{tally_str}\n")
+                    self.history_text.insert(tk.END, f"  No timestamp data\n")
+
+                self.history_text.insert(tk.END, "\n")
+            # Handle old format without timestamp structure
+            elif isinstance(entry, dict):
                 line = ", ".join([f"{k}: {v}" for k, v in entry.items()])
                 self.history_text.insert(tk.END, f"{line}\n")
+                self.history_text.insert(tk.END, f"  No timestamp data\n\n")
             elif isinstance(entry, (list, tuple)):
-                # Old format compatibility
+                # Old format compatibility (tuple)
                 self.history_text.insert(tk.END, f"Reference: {entry[0]}, Direction: {entry[1]}\n")
+                self.history_text.insert(tk.END, f"  No timestamp data\n\n")
 
         self.history_text.config(state='disabled')  # Disable editing again
 
