@@ -171,6 +171,9 @@ class TallyApp:
         self.counter_labels = {}
         self.counter_buttons = {}
 
+        # Auto-save on window close
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
         self.build_ui()
 
     def build_ui(self):
@@ -386,6 +389,11 @@ class TallyApp:
     def save_and_quit(self):
         save_tallies(self.data)
         self.root.quit()
+
+    def on_closing(self):
+        # Auto-save when window is closed
+        save_tallies(self.data)
+        self.root.destroy()
 
 # Set up and run the app
 if __name__ == "__main__":
